@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy::{
+    input::{ButtonInput, mouse::MouseButton},
     render::{
         render_asset::{RenderAssetUsages, RenderAssets},
         render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
@@ -10,6 +11,7 @@ use bevy::{
         texture::GpuImage,
         Extract, RenderApp,
     },
+    window::CursorMoved,
 };
 
 use anyrender_vello::VelloScenePainter;
@@ -51,8 +53,10 @@ impl Plugin for DioxusInBevyPlugin {
 
         app.insert_non_send_resource(dioxus_doc);
         app.insert_non_send_resource(waker);
+        app.init_resource::<MousePosition>();
+        app.init_resource::<PendingEvents>();
         app.add_systems(Startup, setup_ui);
-        app.add_systems(Update, update_ui);
+        app.add_systems(Update, (update_ui, handle_mouse_events));
     }
 
     fn finish(&self, app: &mut App) {
@@ -136,6 +140,17 @@ pub struct TextureImage(Handle<Image>);
 #[derive(Resource)]
 pub struct ExtractedTextureImage(Handle<Image>);
 
+#[derive(Resource, Default)]
+pub struct MousePosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Resource, Default)]
+pub struct PendingEvents {
+    pub events: Vec<UiEvent>,
+}
+
 fn extract_texture_image(
     mut commands: Commands,
     texture_image: Extract<Option<Res<TextureImage>>>,
@@ -177,7 +192,13 @@ fn setup_ui(
             })),
             Transform::from_xyz(0.0, 0.0, 0.0),
     ));
-    commands.spawn(Camera2d);
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: isize::MAX,
+            ..default()
+        },
+    ));
 
     commands.insert_resource(TextureImage(handle));
 }
@@ -189,6 +210,7 @@ fn update_ui(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     receiver: Res<MainWorldReceiver>,
+    mut pending_events: ResMut<PendingEvents>,
 ) {
     if let (Ok(texture_view), Some(mut vello_renderer)) = (receiver.try_recv(), vello_renderer) {
         //dioxus_doc.set_viewport(Viewport::new(WIDTH, HEIGHT, SCALE_FACTOR, COLOR_SCHEME));
@@ -243,14 +265,76 @@ fn update_ui(
             )
             .expect("failed to render to texture");
 
-        // Event handling
-        let event = UiEvent::MouseDown(BlitzMouseButtonEvent {
-            x: 30.0,
-            y: 40.0,
-            button: MouseEventButton::Main,
-            buttons: MouseEventButtons::Primary, // keep track of all pressed buttons
-            mods: Modifiers::empty(), // ctrl, alt, shift, etc
-        });
-        dioxus_doc.handle_event(event);
+        // Event handling - process events from Bevy
+        for event in pending_events.events.drain(..) {
+            println!("Event");
+            dioxus_doc.handle_event(event);
+        }
     }
+}
+
+fn handle_mouse_events(
+    mut mouse_position: ResMut<MousePosition>,
+    mut pending_events: ResMut<PendingEvents>,
+    mut cursor_moved: EventReader<CursorMoved>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mut last_mouse_state: Local<ButtonInput<MouseButton>>,
+) {
+    // Update mouse position
+    for cursor_event in cursor_moved.read() {
+        mouse_position.x = cursor_event.position.x;
+        mouse_position.y = cursor_event.position.y;
+    }
+
+    // Handle mouse button presses
+    for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+        let was_pressed = last_mouse_state.pressed(button);
+        let is_pressed = mouse_buttons.pressed(button);
+
+        if !was_pressed && is_pressed {
+            let ui_event = UiEvent::MouseDown(BlitzMouseButtonEvent {
+                x: mouse_position.x,
+                y: mouse_position.y,
+                button: match button {
+                    MouseButton::Left => MouseEventButton::Main,
+                    MouseButton::Right => MouseEventButton::Secondary,
+                    MouseButton::Middle => MouseEventButton::Auxiliary,
+                    _ => MouseEventButton::Main,
+                },
+                buttons: convert_mouse_buttons(&mouse_buttons),
+                mods: Modifiers::empty(),
+            });
+            pending_events.events.push(ui_event);
+        } else if was_pressed && !is_pressed {
+            let ui_event = UiEvent::MouseUp(BlitzMouseButtonEvent {
+                x: mouse_position.x,
+                y: mouse_position.y,
+                button: match button {
+                    MouseButton::Left => MouseEventButton::Main,
+                    MouseButton::Right => MouseEventButton::Secondary,
+                    MouseButton::Middle => MouseEventButton::Auxiliary,
+                    _ => MouseEventButton::Main,
+                },
+                buttons: convert_mouse_buttons(&mouse_buttons),
+                mods: Modifiers::empty(),
+            });
+            pending_events.events.push(ui_event);
+        }
+    }
+
+    *last_mouse_state = mouse_buttons.clone();
+}
+
+fn convert_mouse_buttons(buttons: &ButtonInput<MouseButton>) -> MouseEventButtons {
+    let mut result = MouseEventButtons::empty();
+    if buttons.pressed(MouseButton::Left) {
+        result |= MouseEventButtons::Primary;
+    }
+    if buttons.pressed(MouseButton::Right) {
+        result |= MouseEventButtons::Secondary;
+    }
+    if buttons.pressed(MouseButton::Middle) {
+        result |= MouseEventButtons::Auxiliary;
+    }
+    result
 }

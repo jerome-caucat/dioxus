@@ -15,7 +15,12 @@ fn ui() -> Element {
             h1 { "Dioxus In Bevy Example" }
         }
         div { id: "buttons",
-            button { id: "button", class: "button", "button" }
+            button {
+                id: "button",
+                class: "button",
+                onclick: move |_| info!("Clicked"),
+                "button"
+            }
         }
     }
 }
@@ -26,8 +31,8 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(BevyScenePlugin {})
         .add_plugins(DioxusInBevyPlugin {ui})
+        .add_plugins(BevyScenePlugin {})
         .run();
 }
 
