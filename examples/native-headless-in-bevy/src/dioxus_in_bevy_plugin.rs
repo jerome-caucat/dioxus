@@ -267,7 +267,6 @@ fn update_ui(
 
         // Event handling - process events from Bevy
         for event in pending_events.events.drain(..) {
-            println!("Event");
             dioxus_doc.handle_event(event);
         }
     }
@@ -304,6 +303,7 @@ fn handle_mouse_events(
                 buttons: convert_mouse_buttons(&mouse_buttons),
                 mods: Modifiers::empty(),
             });
+            println!("Click {} {}", mouse_position.x, mouse_position.y);
             pending_events.events.push(ui_event);
         } else if was_pressed && !is_pressed {
             let ui_event = UiEvent::MouseUp(BlitzMouseButtonEvent {

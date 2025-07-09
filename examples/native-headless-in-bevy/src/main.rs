@@ -10,16 +10,19 @@ static CSS: dioxus::prelude::Asset = asset!("/assets/main.css");
 
 fn ui() -> Element {
     rsx! {
-        document::Stylesheet { href: CSS }
-        div { id: "title",
+        div { 
+            id: "title",
+            style: "background-color: #FFFFFF; color: #0000FF; text-align: center; padding: 10px;",
             h1 { "Dioxus In Bevy Example" }
         }
-        div { id: "buttons",
+        div { 
+            id: "buttons",
+            style: "display: flex; justify-content: center; gap: 20px; padding: 20px;",
             button {
                 id: "button",
-                class: "button",
-                onclick: move |_| info!("Clicked"),
-                "button"
+                style: "padding: 10px 20px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 5px;",
+                onclick: move |_| println!("Clicked"),
+                "Click Me!"
             }
         }
     }
