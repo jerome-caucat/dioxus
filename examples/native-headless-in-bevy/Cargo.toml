@@ -20,7 +20,6 @@ crossbeam-channel = "0.5.0"
 dioxus-native = { path = "../../packages/native" }
 anyrender_vello = "0.4.1"
 vello = "0.5"
-kurbo = "0.11.2"
 rustc-hash = "1.1.0"
 blitz-paint = "0.1.0-alpha.5"
 blitz-traits = "0.1.0-alpha.5"

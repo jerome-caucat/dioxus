@@ -10661,7 +10661,6 @@ dependencies = [
  "dioxus",
  "dioxus-native",
  "futures-util",
- "kurbo",
  "pollster",
  "rustc-hash 1.1.0",
  "tracing-subscriber",
