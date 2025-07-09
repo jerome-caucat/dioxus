@@ -92,19 +92,19 @@ fn orbit_camera_system(
             for mouse_motion in mouse_motion_events.read() {
                 orbit_camera.yaw -= mouse_motion.delta.x * orbit_camera.sensitivity;
                 orbit_camera.pitch -= mouse_motion.delta.y * orbit_camera.sensitivity;
-                
+
                 // Clamp pitch to prevent camera flipping
                 orbit_camera.pitch = orbit_camera.pitch.clamp(-1.5, 1.5);
             }
         }
-        
+
         // Calculate camera position based on spherical coordinates
         let yaw_quat = Quat::from_rotation_y(orbit_camera.yaw);
         let pitch_quat = Quat::from_rotation_x(orbit_camera.pitch);
-        
+
         let rotation = yaw_quat * pitch_quat;
         let position = rotation * Vec3::new(0.0, 0.0, orbit_camera.distance);
-        
+
         transform.translation = position;
         transform.look_at(Vec3::ZERO, Vec3::Y);
     }

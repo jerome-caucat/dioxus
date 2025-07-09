@@ -11,7 +11,7 @@ use bevy::{
         texture::GpuImage,
         Extract, RenderApp,
     },
-    window::CursorMoved,
+    window::{CursorMoved, WindowResized},
 };
 
 use anyrender_vello::VelloScenePainter;
@@ -28,10 +28,8 @@ use vello::{
 };
 use crossbeam_channel::{Receiver, Sender};
 
-// Constant width, height, scale factor and color schemefor example purposes
+// Constant scale factor and color scheme for example purposes
 const SCALE_FACTOR: f32 = 1.0;
-const WIDTH: u32 = 500;
-const HEIGHT: u32 = 400;
 const COLOR_SCHEME: ColorScheme = ColorScheme::Light;
 
 pub struct DioxusInBevyPlugin {
@@ -48,7 +46,7 @@ impl Plugin for DioxusInBevyPlugin {
         let vdom = VirtualDom::new(self.ui);
         let mut dioxus_doc = DioxusDocument::new(vdom, None);
         dioxus_doc.initial_build();
-        dioxus_doc.set_viewport(Viewport::new(WIDTH, HEIGHT, SCALE_FACTOR, COLOR_SCHEME));
+        // Initial viewport will be set in setup_ui after we get the window size
         dioxus_doc.resolve();
 
         app.insert_non_send_resource(dioxus_doc);
@@ -56,11 +54,11 @@ impl Plugin for DioxusInBevyPlugin {
         app.init_resource::<MousePosition>();
         app.init_resource::<PendingEvents>();
         app.add_systems(Startup, setup_ui);
-        app.add_systems(Update, (update_ui, handle_mouse_events));
+        app.add_systems(Update, (update_ui, handle_mouse_events, handle_window_resize));
     }
 
     fn finish(&self, app: &mut App) {
-        // Add the UI rendrer.
+        // Add the UI rendrer
         let render_app = app.sub_app(RenderApp);
         let render_device = render_app.world().resource::<RenderDevice>();
         let device = render_device.wgpu_device();
@@ -68,14 +66,14 @@ impl Plugin for DioxusInBevyPlugin {
         app.insert_non_send_resource(vello_renderer);
 
         // Setup communication between main world and render world, to send
-        // and receive the texture.
+        // and receive the texture
         let (s, r) = crossbeam_channel::unbounded();
         app.insert_resource(MainWorldReceiver(r));
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(bevy::render::ExtractSchedule, extract_texture_image);
         render_app.insert_resource(RenderWorldSender(s));
 
-        // Add a render graph node to get the GPU texture.
+        // Add a render graph node to get the GPU texture
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(TextureGetterNode, TextureGetterNodeDriver);
         graph.add_node_edge(bevy::render::graph::CameraDriverLabel, TextureGetterNode);
@@ -102,6 +100,23 @@ pub fn create_waker(callback: Box<dyn Fn() + 'static + Send + Sync>) -> std::tas
     futures_util::task::waker(Arc::new(DomHandle { callback }))
 }
 
+fn create_ui_texture(width: u32, height: u32) -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0u8; 4],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.texture_descriptor.usage =
+        wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING;
+    image
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash, RenderLabel)]
 struct TextureGetterNode;
 
@@ -116,7 +131,7 @@ impl render_graph::Node for TextureGetterNodeDriver {
         world: &World,
     ) -> Result<(), NodeRunError> {
         // Get the GPU texture from the texture image, and send it to the
-        // main world.
+        // main world
         if let Some(image) = world.get_resource::<ExtractedTextureImage>() {
             let gpu_images = world
                 .get_resource::<RenderAssets<GpuImage>>()
@@ -160,37 +175,41 @@ fn extract_texture_image(
     }
 }
 
+#[derive(Component)]
+pub struct DioxusUiQuad;
+
 fn setup_ui(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut dioxus_doc: NonSendMut<DioxusDocument>,
+    windows: Query<&Window>,
 ) {
-    // Create Bevy Image from the texture data
-    let mut image = Image::new_fill(
-        Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0u8; 4],
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.texture_descriptor.usage =
-        wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING;
+    // Get the window size
+    let window = windows.iter().next().expect("Should have at least one window");
+    let width = window.physical_width();
+    let height = window.physical_height();
 
+    println!("Initial window size: {}x{}", width, height);
+
+    // Set the initial viewport
+    dioxus_doc.set_viewport(Viewport::new(width, height, SCALE_FACTOR, COLOR_SCHEME));
+    dioxus_doc.resolve();
+
+    // Create Bevy Image from the texture data
+    let image = create_ui_texture(width, height);
     let handle = images.add(image);
 
     // Create a quad to display the texture
     commands.spawn((
-            Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
+            Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
             MeshMaterial2d(materials.add(ColorMaterial {
                 texture: Some(handle.clone()),
                 ..default()
             })),
-            Transform::from_xyz(0.0, 0.0, 0.0),
+            Transform::from_scale(Vec3::new(width as f32, height as f32, 0.0)),
+            DioxusUiQuad,
     ));
     commands.spawn((
         Camera2d,
@@ -211,16 +230,16 @@ fn update_ui(
     render_queue: Res<RenderQueue>,
     receiver: Res<MainWorldReceiver>,
     mut pending_events: ResMut<PendingEvents>,
+    windows: Query<&Window>,
 ) {
     if let (Ok(texture_view), Some(mut vello_renderer)) = (receiver.try_recv(), vello_renderer) {
-        //dioxus_doc.set_viewport(Viewport::new(WIDTH, HEIGHT, SCALE_FACTOR, COLOR_SCHEME));
-        //dioxus_doc.resolve();
+        // Get current window size
+        let window = windows.iter().next().expect("Should have at least one window");
+        let width = window.physical_width();
+        let height = window.physical_height();
 
         // Poll the vdom
-        let res = dioxus_doc.poll(Context::from_waker(waker.as_ref()));
-        if res {
-            println!("{res}");
-        }
+        dioxus_doc.poll(Context::from_waker(waker.as_ref()));
 
         // Create a `VelloScenePainter` to paint into
         let mut custom_paint_sources =
@@ -240,8 +259,8 @@ fn update_ui(
             &mut scene_painter,
             &dioxus_doc,
             SCALE_FACTOR as f64,
-            WIDTH,
-            HEIGHT,
+            width,
+            height,
         );
 
         // Extract the `vello::Scene` from the `VelloScenePainter`
@@ -258,8 +277,8 @@ fn update_ui(
                 &texture_view,
                 &RenderParams {
                     base_color: AlphaColor::TRANSPARENT,
-                    width: WIDTH,
-                    height: HEIGHT,
+                    width,
+                    height,
                     antialiasing_method: vello::AaConfig::Msaa16,
                 },
             )
@@ -337,4 +356,44 @@ fn convert_mouse_buttons(buttons: &ButtonInput<MouseButton>) -> MouseEventButton
         result |= MouseEventButtons::Auxiliary;
     }
     result
+}
+
+fn handle_window_resize(
+    mut dioxus_doc: NonSendMut<DioxusDocument>,
+    mut resize_events: EventReader<WindowResized>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    texture_image: Option<Res<TextureImage>>,
+    mut query: Query<(&mut Transform, &mut MeshMaterial2d<ColorMaterial>), With<DioxusUiQuad>>,
+) {
+    for resize_event in resize_events.read() {
+        let width = resize_event.width as u32;
+        let height = resize_event.height as u32;
+
+        println!("Window resized to: {}x{}", width, height);
+
+        // Update the dioxus viewport
+        dioxus_doc.set_viewport(Viewport::new(width, height, SCALE_FACTOR, COLOR_SCHEME));
+        dioxus_doc.resolve();
+
+        // Create a new texture with the new size
+        let new_image = create_ui_texture(width, height);
+        let new_handle = images.add(new_image);
+
+        // Update the quad mesh to match the new size
+        if let Ok((mut trans, mut mat)) = query.single_mut() {
+            *trans = Transform::from_scale(Vec3::new(width as f32, height as f32, 0.0));
+            materials.get_mut(&mut mat.0).unwrap().texture = Some(new_handle.clone());
+        }
+
+        // Update the material with the new texture
+        if let Some(texture_image) = texture_image.as_ref() {
+            // Remove the old texture
+            images.remove(&texture_image.0);
+        }
+
+        // Insert the new texture resource
+        commands.insert_resource(TextureImage(new_handle));
+    }
 }
