@@ -15,9 +15,9 @@ pub fn ui() -> Element {
                 button {
                     id: "button",
                     class: "button",
-                    onclick: move |_| println!("Clicked !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"),
-                    onmousedown: move |_| println!("Down vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"),
-                    onmouseup: move |_| println!("UPp ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"),
+                    onclick: move |_| println!("Button clicked"),
+                    onmousedown: move |_| println!("Button down"),
+                    onmouseup: move |_| println!("Button up"),
                     "Click Me!"
                 }
             }
