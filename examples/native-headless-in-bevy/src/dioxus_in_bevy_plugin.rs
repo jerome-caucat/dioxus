@@ -51,8 +51,6 @@ impl Plugin for DioxusInBevyPlugin {
 
         app.insert_non_send_resource(dioxus_doc);
         app.insert_non_send_resource(waker);
-        app.init_resource::<MousePosition>();
-        app.init_resource::<PendingEvents>();
         app.add_systems(Startup, setup_ui);
         app.add_systems(Update, (update_ui, handle_mouse_events, handle_window_resize));
     }
@@ -155,17 +153,6 @@ pub struct TextureImage(Handle<Image>);
 #[derive(Resource)]
 pub struct ExtractedTextureImage(Handle<Image>);
 
-#[derive(Resource, Default)]
-pub struct MousePosition {
-    pub x: f32,
-    pub y: f32,
-}
-
-#[derive(Resource, Default)]
-pub struct PendingEvents {
-    pub events: Vec<UiEvent>,
-}
-
 fn extract_texture_image(
     mut commands: Commands,
     texture_image: Extract<Option<Res<TextureImage>>>,
@@ -229,10 +216,15 @@ fn update_ui(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     receiver: Res<MainWorldReceiver>,
-    mut pending_events: ResMut<PendingEvents>,
     windows: Query<&Window>,
 ) {
     if let (Ok(texture_view), Some(mut vello_renderer)) = (receiver.try_recv(), vello_renderer) {
+        // Event handling - process events from Bevy
+        //for event in pending_events.events.drain(..) {
+        //    dioxus_doc.handle_event(event);
+        //    dioxus_doc.resolve();
+        //}
+
         // Get current window size
         let window = windows.iter().next().expect("Should have at least one window");
         let width = window.physical_width();
@@ -283,79 +275,73 @@ fn update_ui(
                 },
             )
             .expect("failed to render to texture");
-
-        // Event handling - process events from Bevy
-        for event in pending_events.events.drain(..) {
-            dioxus_doc.handle_event(event);
-        }
     }
+}
+
+#[derive(Resource, Default)]
+pub struct MouseState {
+    pub x: f32,
+    pub y: f32,
+    pub buttons: MouseEventButtons,
+    pub mods: Modifiers,
 }
 
 fn handle_mouse_events(
-    mut mouse_position: ResMut<MousePosition>,
-    mut pending_events: ResMut<PendingEvents>,
+    mut dioxus_doc: NonSendMut<DioxusDocument>,
     mut cursor_moved: EventReader<CursorMoved>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
-    mut last_mouse_state: Local<ButtonInput<MouseButton>>,
+    mut last_mouse_state: Local<MouseState>,
 ) {
-    // Update mouse position
-    for cursor_event in cursor_moved.read() {
-        mouse_position.x = cursor_event.position.x;
-        mouse_position.y = cursor_event.position.y;
+    let mut changed = false;
+    let mouse_state = &mut last_mouse_state;
+
+    if !cursor_moved.is_empty() {
+        for cursor_event in cursor_moved.read() {
+            mouse_state.x = cursor_event.position.x;
+            mouse_state.y = cursor_event.position.y;
+            dioxus_doc.handle_event(UiEvent::MouseMove(BlitzMouseButtonEvent {
+                x: mouse_state.x,
+                y: mouse_state.y,
+                button: Default::default(),
+                buttons: mouse_state.buttons,
+                mods: mouse_state.mods,
+            }));
+        }
+        changed = true;
     }
 
-    // Handle mouse button presses
-    for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
-        let was_pressed = last_mouse_state.pressed(button);
-        let is_pressed = mouse_buttons.pressed(button);
-
-        if !was_pressed && is_pressed {
-            let ui_event = UiEvent::MouseDown(BlitzMouseButtonEvent {
-                x: mouse_position.x,
-                y: mouse_position.y,
-                button: match button {
-                    MouseButton::Left => MouseEventButton::Main,
-                    MouseButton::Right => MouseEventButton::Secondary,
-                    MouseButton::Middle => MouseEventButton::Auxiliary,
-                    _ => MouseEventButton::Main,
-                },
-                buttons: convert_mouse_buttons(&mouse_buttons),
-                mods: Modifiers::empty(),
-            });
-            println!("Click {} {}", mouse_position.x, mouse_position.y);
-            pending_events.events.push(ui_event);
-        } else if was_pressed && !is_pressed {
-            let ui_event = UiEvent::MouseUp(BlitzMouseButtonEvent {
-                x: mouse_position.x,
-                y: mouse_position.y,
-                button: match button {
-                    MouseButton::Left => MouseEventButton::Main,
-                    MouseButton::Right => MouseEventButton::Secondary,
-                    MouseButton::Middle => MouseEventButton::Auxiliary,
-                    _ => MouseEventButton::Main,
-                },
-                buttons: convert_mouse_buttons(&mouse_buttons),
-                mods: Modifiers::empty(),
-            });
-            pending_events.events.push(ui_event);
+    for (button_bevy, button_blitz) in [
+        (MouseButton::Left, MouseEventButton::Main),
+        (MouseButton::Right, MouseEventButton::Secondary),
+        (MouseButton::Middle, MouseEventButton::Auxiliary),
+    ] {
+        if mouse_buttons.just_pressed(button_bevy) {
+            mouse_state.buttons |= MouseEventButtons::from(button_blitz);
+            dioxus_doc.handle_event(UiEvent::MouseDown(BlitzMouseButtonEvent {
+                x: mouse_state.x,
+                y: mouse_state.y,
+                button: button_blitz,
+                buttons: mouse_state.buttons,
+                mods: mouse_state.mods,
+            }));
+            changed = true;
+        }
+        if mouse_buttons.just_released(button_bevy) {
+            mouse_state.buttons &= !MouseEventButtons::from(button_blitz);
+            dioxus_doc.handle_event(UiEvent::MouseUp(BlitzMouseButtonEvent {
+                x: mouse_state.x,
+                y: mouse_state.y,
+                button: button_blitz,
+                buttons: mouse_state.buttons,
+                mods: mouse_state.mods,
+            }));
+            changed = true;
         }
     }
 
-    *last_mouse_state = mouse_buttons.clone();
-}
-
-fn convert_mouse_buttons(buttons: &ButtonInput<MouseButton>) -> MouseEventButtons {
-    let mut result = MouseEventButtons::empty();
-    if buttons.pressed(MouseButton::Left) {
-        result |= MouseEventButtons::Primary;
+    if changed {
+        dioxus_doc.resolve();
     }
-    if buttons.pressed(MouseButton::Right) {
-        result |= MouseEventButtons::Secondary;
-    }
-    if buttons.pressed(MouseButton::Middle) {
-        result |= MouseEventButtons::Auxiliary;
-    }
-    result
 }
 
 fn handle_window_resize(

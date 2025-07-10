@@ -12,7 +12,9 @@ pub fn ui() -> Element {
             button {
                 id: "button",
                 class: "button",
-                onclick: move |_| println!("Clicked"),
+                onclick: move |_| println!("Clicked !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"),
+                onmousedown: move |_| println!("Down vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"),
+                onmouseup: move |_| println!("UPp ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"),
                 "Click Me!"
             }
         }

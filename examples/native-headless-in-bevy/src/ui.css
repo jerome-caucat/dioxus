@@ -12,6 +12,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 30%;
     justify-content: space-between;
 }
 
@@ -41,4 +42,8 @@ html, body {
     font-size: 2rem;
     font-weight: bold;
     color: rgb(0, 255, 0)
+}
+
+.button:hover {
+    color: rgb(255, 255, 0)
 }
