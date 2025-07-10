@@ -286,6 +286,21 @@ pub struct MouseState {
     pub mods: Modifiers,
 }
 
+fn does_catch_events(dioxus_doc: &DioxusDocument, node_id: usize) -> bool {
+    if let Some(node) = dioxus_doc.get_node(node_id) {
+        let class = node.attr(blitz_dom::local_name!("class")).unwrap_or("");
+        if class.split_whitespace().any(|word| word == "catch-events") {
+            true
+        } else if let Some(parent) = node.parent {
+            does_catch_events(dioxus_doc, parent)
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
 fn handle_mouse_events(
     mut dioxus_doc: NonSendMut<DioxusDocument>,
     mut cursor_moved: EventReader<CursorMoved>,
@@ -341,6 +356,12 @@ fn handle_mouse_events(
 
     if changed {
         dioxus_doc.resolve();
+
+        if let Some(hit) = dioxus_doc.hit(mouse_state.x, mouse_state.y) {
+            if does_catch_events(&dioxus_doc, hit.node_id) {
+                println!("hit {}", hit.node_id);
+            }
+        }
     }
 }
 
