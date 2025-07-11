@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 use bevy::input::mouse::{MouseButton, MouseMotion};
+use crate::ui::{UiState, UIMessage};
+use crossbeam_channel::Receiver;
 
 #[derive(Component)]
 pub struct DynamicCube;
@@ -23,13 +25,19 @@ impl Default for OrbitCamera {
     }
 }
 
-pub struct BevyScenePlugin {}
+#[derive(Resource, Deref)]
+struct UIMessageReceiver(Receiver<UIMessage>);
+
+pub struct BevyScenePlugin {
+    pub ui_receiver: Receiver<UIMessage>,
+}
 
 impl Plugin for BevyScenePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(bevy::color::Color::srgba(0.0, 0.0, 0.0, 0.0)));
+        app.insert_resource(UIMessageReceiver(self.ui_receiver.clone()));
         app.add_systems(Startup, setup);
-        app.add_systems(Update, (animate, orbit_camera_system));
+        app.add_systems(Update, (sync_with_ui, animate, orbit_camera_system));
     }
 }
 
@@ -41,7 +49,7 @@ fn setup(
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: bevy::color::Color::srgb(1.0, 0.0, 0.0),
+            base_color: Color::Srgba(bevy::color::Srgba::from_f32_array(UiState::DEFAULT_CUBE_COLOR)),
             metallic: 0.0,
             perceptual_roughness: 0.5,
             ..default()
@@ -72,6 +80,24 @@ fn setup(
         Name::new("MainCamera"),
         OrbitCamera::default(),
     ));
+}
+
+fn sync_with_ui(
+    receiver: Res<UIMessageReceiver>,
+    cube_query: Query<&MeshMaterial3d<StandardMaterial>, With<DynamicCube>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if let Ok(message) = receiver.try_recv() {
+        match message {
+            UIMessage::CubeColor(c) => {
+                for cube_material in cube_query.iter() {
+                    if let Some(material) = materials.get_mut(&cube_material.0) {
+                        material.base_color = Color::Srgba(bevy::color::Srgba::from_f32_array(c));
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn animate(time: Res<Time>, mut cube_query: Query<&mut Transform, With<DynamicCube>>) {

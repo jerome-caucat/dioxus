@@ -32,18 +32,19 @@ use crossbeam_channel::{Receiver, Sender};
 const SCALE_FACTOR: f32 = 1.0;
 const COLOR_SCHEME: ColorScheme = ColorScheme::Light;
 
-pub struct DioxusInBevyPlugin {
-    pub ui: fn() -> Element,
+pub struct DioxusInBevyPlugin<UIMessage> {
+    pub ui: fn(ui_sender: Sender<UIMessage>) -> Element,
+    pub ui_sender: Sender<UIMessage>,
 }
 
-impl Plugin for DioxusInBevyPlugin {
+impl<UIMessage: std::marker::Send + 'static> Plugin for DioxusInBevyPlugin<UIMessage> {
     fn build(&self, app: &mut App) {
         // Create the dioxus virtual dom and the dioxus-native document
         let waker = create_waker(Box::new(|| {
             println!("Waker");
             // This should wake up and "poll" your event loop
         }));
-        let vdom = VirtualDom::new(self.ui);
+        let vdom = VirtualDom::new_with_props(self.ui, self.ui_sender.clone());
         let mut dioxus_doc = DioxusDocument::new(vdom, None);
         dioxus_doc.initial_build();
         // Initial viewport will be set in setup_ui after we get the window size
